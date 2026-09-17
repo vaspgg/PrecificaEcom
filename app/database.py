@@ -18,6 +18,11 @@ def connect():
     APP_DIR.mkdir(parents=True, exist_ok=True)
     con=sqlite3.connect(DB); con.row_factory=sqlite3.Row; con.execute("PRAGMA foreign_keys=ON"); return con
 
+def _add_column(con, table, column, definition):
+    cols={r[1] for r in con.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in cols:
+        con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
 def init_db():
     con=connect()
     con.executescript('''
@@ -32,11 +37,17 @@ def init_db():
     CREATE TABLE IF NOT EXISTS marketplace_config(marketplace TEXT PRIMARY KEY,access_token TEXT DEFAULT '',refresh_token TEXT DEFAULT '',user_id TEXT DEFAULT '',updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS historico_precificacao(id INTEGER PRIMARY KEY AUTOINCREMENT,criado_em TEXT DEFAULT CURRENT_TIMESTAMP,produto_id INTEGER,regime TEXT,uf_origem TEXT,uf_destino TEXT,modalidade TEXT,custo_total REAL,impostos_pct REAL,comissao_pct REAL,tarifa_fixa REAL,frete REAL,ads_pct REAL,margem_pct REAL,preco_calculado REAL);
     ''')
+    _add_column(con,"marketplace_config","client_id","TEXT DEFAULT ''")
+    _add_column(con,"marketplace_config","client_secret","TEXT DEFAULT ''")
+    _add_column(con,"marketplace_config","redirect_uri","TEXT DEFAULT ''")
+    _add_column(con,"marketplace_config","token_expires_at","TEXT DEFAULT ''")
+    _add_column(con,"marketplace_config","seller_nickname","TEXT DEFAULT ''")
     con.executemany("INSERT OR IGNORE INTO estados(uf,nome) VALUES(?,?)",UFS)
     con.executemany("INSERT OR IGNORE INTO regimes_tributarios(codigo,nome) VALUES(?,?)",REGIMES)
     con.execute("INSERT OR IGNORE INTO empresa(id,nome,uf,regime,receita_12m) VALUES(1,'','MG','SIMPLES',0)")
     con.executemany("INSERT OR IGNORE INTO marketplaces(codigo,nome) VALUES(?,?)",[("ML","Mercado Livre"),("SHOPEE","Shopee"),("PROPRIO","Venda própria")])
-    con.execute("INSERT OR IGNORE INTO marketplace_config(marketplace) VALUES('ML')")
+    con.execute("INSERT OR IGNORE INTO marketplace_config(marketplace,client_id) VALUES('ML','2683154375357518')")
+    con.execute("UPDATE marketplace_config SET client_id='2683154375357518' WHERE marketplace='ML' AND (client_id IS NULL OR client_id='')")
     con.executemany('''INSERT INTO tarifas_marketplace(marketplace,codigo,nome,comissao_min_pct,comissao_max_pct,comissao_exata_pct,tarifa_fixa,dinamica,observacao,fonte_url,verificado_em)
       VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(marketplace,codigo) DO UPDATE SET nome=excluded.nome,comissao_min_pct=excluded.comissao_min_pct,comissao_max_pct=excluded.comissao_max_pct,comissao_exata_pct=excluded.comissao_exata_pct,tarifa_fixa=excluded.tarifa_fixa,dinamica=excluded.dinamica,observacao=excluded.observacao,fonte_url=excluded.fonte_url,verificado_em=excluded.verificado_em''', MARKETPLACE_RULES)
     con.commit(); con.close()
