@@ -18,10 +18,18 @@ jobs:
       - name: Dependencias
         run: pip install -r requirements.txt
       - name: Compilar PrecificaEcom.exe
-        run: pyinstaller --noconfirm --clean --onefile --windowed --name PrecificaEcom --collect-all uvicorn --collect-all fastapi --collect-all starlette desktop.py
+        run: >-
+          pyinstaller --noconfirm --clean --onefile --windowed
+          --name PrecificaEcom
+          --collect-all uvicorn
+          --collect-all fastapi
+          --collect-all starlette
+          --collect-all webview
+          --hidden-import clr
+          desktop.py
       - name: Publicar executavel
         uses: actions/upload-artifact@v4
         with:
-          name: PrecificaEcom-Windows
+          name: PrecificaEcom-Windows-v0.2
           path: dist/PrecificaEcom.exe
           if-no-files-found: error
