@@ -16,11 +16,16 @@ jobs:
         with:
           python-version: '3.11'
       - name: Dependencias
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          pip install pillow
+      - name: Gerar icone Windows
+        run: python tools/generate_icon.py
       - name: Compilar PrecificaEcom.exe
         run: >-
           pyinstaller --noconfirm --clean --onefile --windowed
           --name PrecificaEcom
+          --icon assets/PrecificaEcom.ico
           --collect-all uvicorn
           --collect-all fastapi
           --collect-all starlette
@@ -30,6 +35,6 @@ jobs:
       - name: Publicar executavel
         uses: actions/upload-artifact@v4
         with:
-          name: PrecificaEcom-Windows-v0.2
+          name: PrecificaEcom-Windows-v0.10
           path: dist/PrecificaEcom.exe
           if-no-files-found: error
