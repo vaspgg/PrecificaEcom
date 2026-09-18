@@ -1,11 +1,12 @@
-import html, secrets, time
+import html, secrets, time, urllib.parse
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from .database import init_db, connect
 from .marketplaces.mercadolivre import *
+from .pricing import PricingInput, calcular_preco
 app=FastAPI(title='PrecificaEcom'); init_db()
 CSS='''body{font-family:Segoe UI,Arial;background:#f4f6f8;margin:0;color:#1f2937}.wrap{max-width:1050px;margin:28px auto;padding:0 20px}.card{background:white;padding:24px;border-radius:14px;box-shadow:0 2px 12px #0001;margin-bottom:18px}h1{margin:0 0 8px}.muted{color:#64748b}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}label{display:block;font-size:13px;font-weight:600;margin-bottom:5px}input,select,textarea{width:100%;box-sizing:border-box;padding:10px;border:1px solid #cbd5e1;border-radius:8px}button,.btn{display:inline-block;padding:12px 18px;border:0;border-radius:9px;background:#111827;color:white;font-weight:700;cursor:pointer;text-decoration:none}.warn,.info,.ok{padding:12px;border-radius:8px;margin:10px 0}.warn{background:#fff7ed;color:#9a3412}.info{background:#eff6ff;color:#1e40af}.ok{background:#ecfdf5;color:#166534}.nav{display:flex;gap:14px;margin-bottom:15px;flex-wrap:wrap}.nav a{color:#334155;text-decoration:none;font-weight:600}.cat{padding:12px;border:1px solid #cbd5e1;border-radius:9px;margin:8px 0}@media(max-width:650px){.grid{grid-template-columns:1fr}}'''
-def page(b): return HTMLResponse(f"<!doctype html><html><head><meta charset='utf-8'><title>PrecificaEcom</title><style>{CSS}</style></head><body><div class='wrap'><div class='nav'><a href='/precificar'>Precificar</a><a href='/anuncio-similar'>Anúncio similar</a><a href='/mercadolivre'>Mercado Livre</a></div>{b}</div></body></html>")
+def page(b): return HTMLResponse(f"<!doctype html><html><head><meta charset='utf-8'><title>PrecificaEcom</title><style>{CSS}</style></head><body><div class='wrap'><div class='nav'><a href='/precificar'>Precificar</a><a href='/anuncio-similar'>Anúncio similar</a><a href='/empresa'>Empresa</a><a href='/mercadolivre'>Mercado Livre</a></div>{b}</div></body></html>")
 def ml_cfg():
  c=connect();r=c.execute("SELECT * FROM marketplace_config WHERE marketplace='ML'").fetchone();c.close();return r
 def ensure_ml_token():
@@ -35,14 +36,44 @@ def callback(code:str='',state:str='',error:str=''):
  if not sess:return page("<div class='warn'>Sessão OAuth inválida.</div>")
  try:t=exchange_code(cfg['client_id'],cfg['client_secret'],cfg['redirect_uri'],code,sess['code_verifier']);u=me(t['access_token'])
  except Exception as e:return page(f"<div class='warn'>{html.escape(str(e))}</div>")
- c=connect();c.execute("UPDATE marketplace_config SET access_token=?,refresh_token=?,user_id=?,seller_nickname=?,token_expires_at=? WHERE marketplace='ML'",(t.get('access_token',''),t.get('refresh_token',''),str(u.get('id','')),u.get('nickname',''),str(time.time()+int(t.get('expires_in',21600)))));c.execute("DELETE FROM oauth_sessions WHERE state=?",(state,));c.commit();c.close();return page("<div class='ok'>Mercado Livre conectado.</div><a class='btn' href='/precificar'>Continuar</a>")
+ ident=u.get('identification') or {};addr=u.get('address') or {};company=u.get('company') or {};seller_name=company.get('corporate_name') or company.get('brand_name') or (' '.join(x for x in [u.get('first_name',''),u.get('last_name','')] if x)).strip() or u.get('nickname','')
+ c=connect();c.execute("UPDATE marketplace_config SET access_token=?,refresh_token=?,user_id=?,seller_nickname=?,token_expires_at=?,seller_name=?,seller_document_type=?,seller_document=?,seller_state=?,seller_city=? WHERE marketplace='ML'",(t.get('access_token',''),t.get('refresh_token',''),str(u.get('id','')),u.get('nickname',''),str(time.time()+int(t.get('expires_in',21600))),seller_name,ident.get('type',''),ident.get('number',''),str(addr.get('state','')),str(addr.get('city',''))))
+ if seller_name:c.execute("UPDATE empresa SET nome=CASE WHEN nome='' THEN ? ELSE nome END WHERE id=1",(seller_name,))
+ c.execute("DELETE FROM oauth_sessions WHERE state=?",(state,));c.commit();c.close();return page("<div class='ok'>Mercado Livre conectado e dados cadastrais disponíveis foram sincronizados.</div><a class='btn' href='/empresa'>Revisar empresa</a> <a class='btn' href='/precificar'>Precificar</a>")
+def pricing_form(title='',ncm='',category_id='',source='manual'):
+ return page(f"""<div class='card'><h1>Precificação</h1><p class='muted'>Produto: <b>{html.escape(title or 'Não informado')}</b>{' | NCM: <b>'+html.escape(ncm)+'</b>' if ncm else ''}{' | Categoria ML: <b>'+html.escape(category_id)+'</b>' if category_id else ''}</p><form method='post' action='/calcular-preco'><input type='hidden' name='title' value='{html.escape(title)}'><input type='hidden' name='ncm' value='{html.escape(ncm)}'><input type='hidden' name='category_id' value='{html.escape(category_id)}'><div class='grid'><div><label>Custo do produto (R$)</label><input type='number' step='.01' min='0' name='custo_produto' required></div><div><label>Embalagem (R$)</label><input type='number' step='.01' min='0' name='embalagem' value='0'></div><div><label>Outros custos (R$)</label><input type='number' step='.01' min='0' name='outros_custos' value='0'></div><div><label>Frete pago pelo vendedor (R$)</label><input type='number' step='.01' min='0' name='frete_vendedor' value='0'></div><div><label>Tarifa fixa marketplace (R$)</label><input type='number' step='.01' min='0' name='tarifa_fixa' value='0'></div><div><label>Impostos (%)</label><input type='number' step='.01' min='0' name='imposto_pct' value='0'></div><div><label>Comissão marketplace (%)</label><input type='number' step='.01' min='0' name='comissao_pct' value='0'></div><div><label>Ads (%)</label><input type='number' step='.01' min='0' name='ads_pct' value='0'></div><div><label>Margem desejada (%)</label><input type='number' step='.01' min='0' name='margem_pct' value='20' required></div></div><br><button>Calcular preço de venda</button></form></div>""")
 @app.get('/precificar')
-def precificar(): return page("<div class='card'><h1>Precificar</h1><p>Localize a categoria usando NCM + nome do produto.</p><form method='post' action='/categoria-sugerir'><div class='grid'><div><label>NCM</label><input name='ncm' required maxlength='8'></div><div><label>Produto</label><input name='product_name' required></div></div><br><button>Buscar categoria</button></form></div><div class='card'><h2>Ou use um anúncio similar</h2><a class='btn' href='/anuncio-similar'>Pesquisar pelo link</a></div>")
+def precificar(): return page("<div class='card'><h1>Precificar</h1><p>Informe o NCM, o nome do produto ou os dois. Nenhum dos dois campos é obrigatório individualmente.</p><form method='post' action='/categoria-sugerir'><div class='grid'><div><label>NCM</label><input name='ncm' maxlength='8' placeholder='Opcional'></div><div><label>Produto</label><input name='product_name' placeholder='Opcional'></div></div><br><button>Continuar para precificação</button></form></div><div class='card'><h2>Ou use um anúncio similar</h2><a class='btn' href='/anuncio-similar'>Pesquisar pelo link</a></div>")
 @app.post('/categoria-sugerir')
-def suggest(ncm:str=Form(...),product_name:str=Form(...)):
- try:cfg=ensure_ml_token();cats=predict_categories(cfg['access_token'],product_name,3)
+def suggest(ncm:str=Form(''),product_name:str=Form('')):
+ ncm=''.join(ch for ch in ncm if ch.isdigit())[:8];product_name=product_name.strip()
+ if not ncm and not product_name:return page("<div class='warn'>Informe pelo menos o NCM ou o nome do produto.</div><a class='btn' href='/precificar'>Voltar</a>")
+ if not product_name:return pricing_form('',ncm,'','ncm')
+ try:
+  cfg=ensure_ml_token();cats=predict_categories(cfg['access_token'] if cfg else None,product_name,3)
+ except Exception:
+  return pricing_form(product_name,ncm,'','nome')
+ if not cats:return pricing_form(product_name,ncm,'','nome')
+ cards=''.join(f"<div class='cat'><b>{html.escape(x['category_name'])}</b> — {html.escape(x['category_id'])}<form method='get' action='/tabela-precificacao'><input type='hidden' name='category_id' value='{html.escape(x['category_id'])}'><input type='hidden' name='title' value='{html.escape(product_name)}'><input type='hidden' name='ncm' value='{html.escape(ncm)}'><button>Usar categoria na precificação</button></form></div>" for x in cats)
+ return page(f"<div class='card'><h1>Categorias sugeridas</h1><p>Escolha a categoria mais adequada. O próximo passo é a tabela de precificação, não a publicação do anúncio.</p>{cards}<br><a class='btn' href='/tabela-precificacao?title={urllib.parse.quote(product_name)}&ncm={urllib.parse.quote(ncm)}'>Continuar sem categoria</a></div>")
+
+@app.get('/tabela-precificacao')
+def tabela_precificacao(title:str='',ncm:str='',category_id:str=''): return pricing_form(title,ncm,category_id)
+
+@app.post('/calcular-preco')
+def calcular(custo_produto:float=Form(...),embalagem:float=Form(0),outros_custos:float=Form(0),frete_vendedor:float=Form(0),tarifa_fixa:float=Form(0),imposto_pct:float=Form(0),comissao_pct:float=Form(0),ads_pct:float=Form(0),margem_pct:float=Form(...),title:str=Form(''),ncm:str=Form(''),category_id:str=Form('')):
+ try:r=calcular_preco(PricingInput(custo_produto,embalagem,outros_custos,frete_vendedor,tarifa_fixa,imposto_pct,comissao_pct,ads_pct,margem_pct))
  except Exception as e:return page(f"<div class='warn'>{html.escape(str(e))}</div>")
- cards=''.join(f"<div class='cat'><b>{html.escape(x['category_name'])}</b> — {x['category_id']}<form method='get' action='/criar-anuncio'><input type='hidden' name='category_id' value='{x['category_id']}'><input type='hidden' name='title' value='{html.escape(product_name)}'><button>Usar e criar anúncio</button></form></div>" for x in cats);return page(f"<div class='card'><h1>Categorias sugeridas</h1>{cards}</div>")
+ return page(f"<div class='card'><h1>Resultado da precificação</h1><p><b>{html.escape(title or 'Produto')}</b></p><div class='grid'><div class='ok'><b>Preço de venda</b><br>R$ {r['preco']:.2f}</div><div class='ok'><b>Lucro estimado</b><br>R$ {r['lucro']:.2f} ({r['margem_real']:.2f}%)</div><div class='info'>Custos fixos: R$ {r['custos_fixos']:.2f}</div><div class='info'>Impostos: R$ {r['imposto']:.2f} | Comissão: R$ {r['comissao']:.2f} | Ads: R$ {r['ads']:.2f}</div></div><br><a class='btn' href='/tabela-precificacao?title={urllib.parse.quote(title)}&ncm={urllib.parse.quote(ncm)}&category_id={urllib.parse.quote(category_id)}'>Recalcular</a></div>")
+
+@app.get('/empresa')
+def empresa():
+ c=connect();e=c.execute("SELECT * FROM empresa WHERE id=1").fetchone();c.close();opts=''.join(f"<option value='{x}' {'selected' if e['regime']==x else ''}>{n}</option>" for x,n in [('MEI','MEI'),('SIMPLES','Simples Nacional'),('PRESUMIDO','Lucro Presumido'),('REAL','Lucro Real')])
+ return page(f"<div class='card'><h1>Empresa</h1><form method='post'><div class='grid'><div><label>Nome / Razão social</label><input name='nome' value='{html.escape(e['nome'] or '')}'></div><div><label>UF</label><input name='uf' maxlength='2' value='{html.escape(e['uf'] or '')}'></div><div><label>Regime tributário</label><select name='regime'>{opts}</select></div><div><label>Receita bruta 12 meses (R$)</label><input type='number' step='.01' min='0' name='receita_12m' value='{float(e['receita_12m'] or 0)}'></div></div><br><button>Salvar empresa</button></form><div class='info'>O Mercado Livre pode fornecer dados cadastrais da conta, mas o regime tributário deve ser confirmado aqui quando não vier de uma fonte fiscal confiável.</div></div>")
+
+@app.post('/empresa')
+def empresa_salvar(nome:str=Form(''),uf:str=Form(''),regime:str=Form('SIMPLES'),receita_12m:float=Form(0)):
+ c=connect();c.execute("UPDATE empresa SET nome=?,uf=?,regime=?,receita_12m=? WHERE id=1",(nome.strip(),uf.strip().upper()[:2],regime,receita_12m));c.commit();c.close();return RedirectResponse('/empresa',303)
 @app.get('/anuncio-similar')
 def similar():return page("<div class='card'><h1>Anúncio similar</h1><p class='muted'>Cole a URL completa do produto ou o código MLB do anúncio. Links de catálogo com parâmetro wid também são aceitos.</p><form method='post'><label>Link ou MLB</label><input name='url' required><br><br><button>Pesquisar</button></form></div>")
 @app.post('/anuncio-similar')
@@ -50,7 +81,7 @@ def similar_post(url:str=Form(...)):
  try:
   cfg=ensure_ml_token();i=item_details(cfg['access_token'] if cfg else None,url);cat=category_details(cfg['access_token'] if cfg else None,i['category_id']);path=' → '.join(x.get('name','') for x in cat.get('path_from_root',[]))
  except Exception as e:return page(f"<div class='warn'><b>Não foi possível consultar o anúncio.</b><br>{html.escape(str(e))}<br><br>Se o link for de uma página de catálogo, confirme se ele contém <b>wid=MLB...</b> ou informe diretamente o código MLB do anúncio.</div>")
- return page(f"<div class='card'><h1>Referência encontrada</h1><p><b>{html.escape(i['title'] or '')}</b></p><p>{html.escape(path)}</p><p>Categoria: <b>{i['category_id']}</b> | Anúncio: <b>{i['id']}</b></p><div class='info'>A referência serve para categoria e estrutura. Fotos e textos do outro vendedor não serão copiados.</div><form method='get' action='/criar-anuncio'><input type='hidden' name='category_id' value='{i['category_id']}'><input type='hidden' name='title' value='{html.escape(i['title'] or '')}'><button>Criar meu anúncio nesta categoria</button></form></div>")
+ return page(f"<div class='card'><h1>Referência encontrada</h1><p><b>{html.escape(i['title'] or '')}</b></p><p>{html.escape(path)}</p><p>Categoria: <b>{i['category_id']}</b> | Anúncio: <b>{i['id']}</b></p><div class='info'>A referência serve para categoria e estrutura. Fotos e textos do outro vendedor não serão copiados.</div><form method='get' action='/tabela-precificacao'><input type='hidden' name='category_id' value='{i['category_id']}'><input type='hidden' name='title' value='{html.escape(i['title'] or '')}'><button>Abrir tabela de precificação</button></form></div>")
 @app.get('/criar-anuncio')
 def create_form(category_id:str,title:str=''):
  try:cfg=ensure_ml_token();attrs=category_attributes(cfg['access_token'],category_id)
