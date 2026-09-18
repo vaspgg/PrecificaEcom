@@ -1,51 +1,80 @@
 from .database import connect
+from datetime import date
 
-ANEXO_I_COMERCIO = [
-    (180000.00, 4.00, 0.00),
-    (360000.00, 7.30, 5940.00),
-    (720000.00, 9.50, 13860.00),
-    (1800000.00, 10.70, 22500.00),
-    (3600000.00, 14.30, 87300.00),
-    (4800000.00, 19.00, 378000.00),
-]
+ANEXO_I_COMERCIO=[
+ (180000.00,4.00,0.00,34.00),(360000.00,7.30,5940.00,34.00),
+ (720000.00,9.50,13860.00,33.50),(1800000.00,10.70,22500.00,33.50),
+ (3600000.00,14.30,87300.00,33.50),(4800000.00,19.00,378000.00,0.00)]
+SUL_SUDESTE={'MG','SP','RJ','PR','SC','RS','ES'}
+NORTE_NE_CO_ES={'AC','AL','AP','AM','BA','CE','DF','GO','MA','MT','MS','PA','PB','PE','PI','RN','RO','RR','SE','TO','ES'}
 
 def contexto_fiscal(regime,uf_origem,uf_destino,ncm,receita_12m=0):
-    con=connect()
-    rows=con.execute("""SELECT * FROM regras_fiscais WHERE ativo=1 AND regime=? AND (uf_origem IS NULL OR uf_origem=?) AND (uf_destino IS NULL OR uf_destino=?) ORDER BY LENGTH(COALESCE(ncm_prefixo,'')) DESC""",(regime,uf_origem,uf_destino)).fetchall(); con.close()
-    return [dict(r) for r in rows if not r['ncm_prefixo'] or (ncm and ncm.startswith(r['ncm_prefixo']))]
+ con=connect();rows=con.execute("""SELECT * FROM regras_fiscais WHERE ativo=1 AND regime=? AND (uf_origem IS NULL OR uf_origem=?) AND (uf_destino IS NULL OR uf_destino=?) ORDER BY LENGTH(COALESCE(ncm_prefixo,'')) DESC""",(regime,uf_origem,uf_destino)).fetchall();con.close()
+ return [dict(r) for r in rows if not r['ncm_prefixo'] or (ncm and ncm.startswith(r['ncm_prefixo']))]
 
-def simples_comercio_aliquota_efetiva(receita_12m):
-    r=float(receita_12m or 0)
-    if r<=0:return None
-    for limite,aliq,pd in ANEXO_I_COMERCIO:
-        if r<=limite:return round(((r*(aliq/100.0)-pd)/r)*100.0,4)
-    return None
+def simples_comercio_detalhe(rbt12):
+ r=float(rbt12 or 0)
+ if r<=0:return None
+ for limite,nom,pd,icms_share in ANEXO_I_COMERCIO:
+  if r<=limite:
+   efet=((r*nom/100-pd)/r)*100
+   return {'total_pct':round(efet,4),'icms_das_pct':round(efet*icms_share/100,4),'federal_cpp_pct':round(efet*(100-icms_share)/100,4),'faixa_limite':limite}
+ return None
 
-def calcular_imposto(regime,regras,receita_12m=0):
-    regime=(regime or '').upper()
-    # MEI recolhe DAS em valor mensal fixo; não transformar automaticamente
-    # esse valor em percentual por venda.
-    if regime=='MEI':
-        return None,'MEI: DAS mensal fixo; o imposto por venda não deve ser estimado como percentual sem critério de rateio.'
-    if regime=='SIMPLES':
-        a=simples_comercio_aliquota_efetiva(receita_12m)
-        if a is not None:return a,'Simples Nacional: alíquota efetiva calculada pelo Anexo I (comércio) a partir da RBT12.'
-        return None,'Simples Nacional: informe a Receita Bruta dos últimos 12 meses na tela Empresa para calcular a alíquota efetiva.'
-    tipos=("DAS","ICMS","DIFAL","FCP","PIS","COFINS","IRPJ","CSLL","IPI")
-    vals=[float(r['aliquota'] or 0) for r in regras if r['tipo'] in tipos and r['aliquota'] is not None]
-    if vals:return round(sum(vals),4),'Alíquota obtida das regras fiscais cadastradas para o regime/UF/NCM.'
-    # Baseline federal para comércio. Tributos estaduais e monofásicos/ST continuam
-    # dependendo das regras por NCM/UF e não são inventados aqui.
-    if regime=='PRESUMIDO':
-        # PIS 0,65 + COFINS 3,00 + IRPJ (8% x 15%) + CSLL (12% x 9%)
-        return 5.93,'Lucro Presumido/comércio: baseline federal estimado de 5,93% (PIS 0,65% + COFINS 3% + IRPJ 1,20% + CSLL 1,08%). ICMS/FCP/ST/DIFAL/IPI, adicional de IRPJ e regimes especiais dependem do produto/operação.'
-    if regime=='REAL':
-        # No Lucro Real IRPJ/CSLL incidem sobre lucro, não sobre faturamento.
-        # PIS/COFINS são não cumulativos e possuem créditos; não é correto somar
-        # 15%+9% ao preço de venda como se fossem tributos sobre receita.
-        return 9.25,'Lucro Real: baseline bruto de PIS/COFINS 9,25% (1,65% + 7,6%), antes dos créditos. IRPJ/CSLL incidem sobre o lucro e ICMS/FCP/ST/DIFAL/IPI dependem da operação; ajuste com as regras fiscais cadastradas.'
-    return None,'Não há regra fiscal validada cadastrada para esta combinação de regime, UF e NCM.'
+def aliquota_interestadual(uf_o,uf_d,origem_mercadoria=0):
+ if uf_o==uf_d:return None
+ # Mercadoria importada/conteúdo importação >40% exige regra específica de origem.
+ if str(origem_mercadoria) in ('1','2','3','8'):return 4.0
+ if uf_o in SUL_SUDESTE and uf_d in NORTE_NE_CO_ES:return 7.0
+ return 12.0
+
+def _regras_por_tipo(regras):
+ d={}
+ for r in regras:
+  if r.get('aliquota') is not None:d.setdefault(r['tipo'],[]).append(float(r['aliquota']))
+ return {k:sum(v) for k,v in d.items()}
+
+def calcular_imposto(regime,regras,receita_12m=0,uf_origem='',uf_destino='',ncm='',origem_mercadoria=0,consumidor_final=True,contribuinte_icms=False,aliquota_interna_destino=None,fcp_destino=None):
+ regime=(regime or '').upper();rt=_regras_por_tipo(regras);partes={};avisos=[]
+ if regime=='MEI':
+  return None,'MEI: DAS mensal fixo. Cadastre um critério de rateio para incorporar o DAS ao custo por venda.',partes
+ if regime=='SIMPLES':
+  s=simples_comercio_detalhe(receita_12m)
+  if not s:return None,'Simples Nacional: informe a RBT12 na tela Empresa.',partes
+  partes['DAS']=s['total_pct']
+  # DIFAL/FCP/ST podem existir fora do DAS conforme operação; só somar quando houver regra cadastrada.
+  for t in ('DIFAL','FCP','ICMS_ST','IPI'):
+   if t in rt:partes[t]=rt[t]
+  total=sum(partes.values())
+  return round(total,4),'Simples/Anexo I: DAS efetivo pela RBT12; tributos fora do DAS somente quando há regra específica cadastrada.',partes
+
+ # Regimes normais: regras específicas prevalecem; baseline federal é separado.
+ if regime=='PRESUMIDO':
+  partes.update({'PIS':0.65,'COFINS':3.0,'IRPJ':1.20,'CSLL':1.08})
+  avisos.append('IRPJ sem adicional; em 2026 há mudanças nos percentuais de presunção para receitas acima dos limites legais, que exigem apuração do período.')
+ elif regime=='REAL':
+  partes.update({'PIS':1.65,'COFINS':7.60})
+  avisos.append('PIS/COFINS mostrados antes dos créditos. IRPJ/CSLL do Lucro Real dependem do lucro ajustado e não são tratados como percentual da venda.')
+ for t,v in rt.items():
+  if t in ('PIS','COFINS','IRPJ','CSLL','ICMS','DIFAL','FCP','ICMS_ST','IPI'):partes[t]=v
+
+ # ICMS interestadual só é estimado quando não existe regra específica.
+ if 'ICMS' not in partes and uf_origem and uf_destino:
+  ai=aliquota_interestadual(uf_origem,uf_destino,origem_mercadoria)
+  if ai is not None:partes['ICMS']=ai;avisos.append('ICMS interestadual estimado pela UF/origem da mercadoria; confirme benefícios, ST e exceções do NCM.')
+ # DIFAL requer alíquota interna de destino confiável.
+ if consumidor_final and not contribuinte_icms and uf_origem!=uf_destino and 'DIFAL' not in partes and aliquota_interna_destino is not None:
+  ai=aliquota_interestadual(uf_origem,uf_destino,origem_mercadoria) or 0
+  partes['DIFAL']=max(0,float(aliquota_interna_destino)-ai)
+ if fcp_destino is not None and uf_origem!=uf_destino:partes.setdefault('FCP',float(fcp_destino))
+ total=sum(partes.values())
+ msg='Componentes: '+', '.join(f'{k} {v:.2f}%' for k,v in partes.items())+'.'
+ if avisos:msg+=' '+' '.join(avisos)
+ return round(total,4),msg,partes
+
+def rtc_2026_info(regime):
+ if (regime or '').upper()=='SIMPLES':return 'RTC 2026: alíquotas-teste de CBS/IBS não são adicionadas ao preço do Simples neste cálculo.'
+ return 'RTC 2026: CBS 0,9% + IBS 0,1% são informativos/compensáveis; não são somados novamente ao custo tributário para evitar dupla contagem em 2026.'
 
 def aliquota_efetiva_cadastrada(regras):
-    tipos=("DAS","ICMS","DIFAL","FCP","PIS","COFINS","IRPJ","CSLL","IPI")
-    return round(sum(float(r['aliquota'] or 0) for r in regras if r['tipo'] in tipos),4)
+ return round(sum(float(r['aliquota'] or 0) for r in regras if r['tipo'] in ('DAS','ICMS','DIFAL','FCP','PIS','COFINS','IRPJ','CSLL','IPI','ICMS_ST')),4)
