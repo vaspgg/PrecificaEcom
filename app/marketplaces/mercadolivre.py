@@ -89,6 +89,17 @@ def item_details(access_token,item_or_url):
                     data=row.get('body') or {}
                 return _normalize_item(data,item_id)
             except MercadoLivreAPIError as e:errors.append(str(e))
+    # Se a leitura direta falhar, tenta o recurso público de product search usando o MLB.
+    # Alguns links de catálogo/concorrentes não liberam /items diretamente, mas o resultado
+    # de busca ainda pode expor preço, listing_type e shipping do anúncio.
+    if item_id:
+        try:
+            search=_get(f"/sites/{SITE_ID}/search",None,{"q":item_id,"limit":10})
+            rows=(search or {}).get("results") or []
+            row=next((x for x in rows if str(x.get("id","")).replace("-","").upper()==item_id),None)
+            if row:
+                return _normalize_item(row,item_id)
+        except MercadoLivreAPIError as e: errors.append(str(e))
     # Links de UPP/concorrentes podem ser protegidos. Usa o título visível no próprio URL
     # apenas para executar o preditor oficial de categorias, sem afirmar que leu o anúncio.
     title=title_from_product_url(item_or_url)
