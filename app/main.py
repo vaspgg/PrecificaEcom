@@ -102,7 +102,11 @@ def similar_post(url:str=Form(...)):
  try:
   cfg=ensure_ml_token();i=item_details(cfg['access_token'] if cfg else None,url);cat=category_details(cfg['access_token'] if cfg else None,i['category_id']);path=' → '.join(x.get('name','') for x in cat.get('path_from_root',[]))
  except Exception as e:return page(f"<div class='warn'><b>Não foi possível consultar o anúncio.</b><br>{html.escape(str(e))}<br><br>Se o link for de uma página de catálogo, confirme se ele contém <b>wid=MLB...</b> ou informe diretamente o código MLB do anúncio.</div>")
- ship=i.get('shipping') or {};return pricing_form(i['title'] or '','',i['category_id'],'link','ML',i.get('listing_type_id') or 'gold_special',float(i.get('price') or 0),'',ship.get('logistic_type') or 'not_specified',ship.get('mode') or 'not_specified',i.get('id') or '')
+ ship=i.get('shipping') or {}
+ price_ref=float(i.get('price') or 0)
+ if price_ref<=0:
+  return page("<div class='warn'>O anúncio foi localizado, mas a API não retornou o preço atual. Informe outro link/MLB ou preencha o preço de referência manualmente.</div>"+pricing_form(i['title'] or '','',i['category_id'],'link','ML',i.get('listing_type_id') or 'gold_special',0,'',ship.get('logistic_type') or 'not_specified',ship.get('mode') or 'not_specified',i.get('id') or '').body.decode('utf-8'))
+ return pricing_form(i['title'] or '','',i['category_id'],'link','ML',i.get('listing_type_id') or 'gold_special',price_ref,'',ship.get('logistic_type') or 'not_specified',ship.get('mode') or 'not_specified',i.get('id') or '')
 @app.get('/criar-anuncio')
 def create_form(category_id:str,title:str=''):
  try:cfg=ensure_ml_token();attrs=category_attributes(cfg['access_token'],category_id)
