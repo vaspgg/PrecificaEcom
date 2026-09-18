@@ -1,4 +1,4 @@
-name: Build Windows EXE
+name: Build Windows Setup
 
 on:
   workflow_dispatch:
@@ -32,9 +32,13 @@ jobs:
           --collect-all webview
           --hidden-import clr
           desktop.py
-      - name: Publicar executavel
+      - name: Instalar Inno Setup
+        run: choco install innosetup -y --no-progress
+      - name: Gerar instalador
+        run: iscc installer/PrecificaEcom.iss
+      - name: Publicar Setup
         uses: actions/upload-artifact@v4
         with:
-          name: PrecificaEcom-Windows-v0.10
-          path: dist/PrecificaEcom.exe
+          name: PrecificaEcom-Setup-v0.19
+          path: installer/output/PrecificaEcom-Setup.exe
           if-no-files-found: error
