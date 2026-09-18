@@ -78,3 +78,45 @@ def rtc_2026_info(regime):
 
 def aliquota_efetiva_cadastrada(regras):
  return round(sum(float(r['aliquota'] or 0) for r in regras if r['tipo'] in ('DAS','ICMS','DIFAL','FCP','PIS','COFINS','IRPJ','CSLL','IPI','ICMS_ST')),4)
+
+
+class FiscalProvider:
+ name='interno'
+ def calcular(self,**kwargs):
+  regras=contexto_fiscal(kwargs.get('regime',''),kwargs.get('uf_origem',''),kwargs.get('uf_destino',''),kwargs.get('ncm',''),kwargs.get('receita_12m',0))
+  imposto,nota,partes=calcular_imposto(kwargs.get('regime',''),regras,kwargs.get('receita_12m',0),kwargs.get('uf_origem',''),kwargs.get('uf_destino',''),kwargs.get('ncm',''),kwargs.get('origem_mercadoria',0),kwargs.get('consumidor_final',True),kwargs.get('contribuinte_icms',False))
+  return {'provider':self.name,'imposto_pct':imposto,'nota':nota,'partes':partes,'rtc':rtc_2026_info(kwargs.get('regime',''))}
+
+class RFBLocalProvider:
+ name='rfb_local'
+ def __init__(self,base_url='http://localhost:8080/api'):self.base_url=base_url.rstrip('/')
+ def disponivel(self):
+  import json,urllib.request
+  try:
+   with urllib.request.urlopen(self.base_url+'/calculadora/dados-abertos/versao',timeout=1.2) as r:
+    return 200<=r.status<300
+  except Exception:return False
+ def versao(self):
+  import json,urllib.request
+  with urllib.request.urlopen(self.base_url+'/calculadora/dados-abertos/versao',timeout=3) as r:return json.loads(r.read().decode('utf-8'))
+
+def fiscal_provider_status():
+ r=RFBLocalProvider()
+ if r.disponivel():
+  try:return {'provider':'rfb_local','online':True,'versao':r.versao()}
+  except Exception:return {'provider':'rfb_local','online':True,'versao':{}}
+ return {'provider':'interno','online':False,'versao':{}}
+
+def calcular_fiscal_hibrido(**kwargs):
+ interno=FiscalProvider().calcular(**kwargs)
+ status=fiscal_provider_status()
+ interno['rfb_local_disponivel']=status['online'];interno['rfb_versao']=status['versao']
+ # A RFB não oferece API pública online para cálculo em ERP. Quando o componente
+ # oficial local estiver ativo, esta camada o detecta. O payload de regime-geral
+ # será habilitado somente com os campos fiscais obrigatórios completos (cClassTrib,
+ # CST, município/local da operação etc.), evitando enviar uma simulação inválida.
+ if status['online']:
+  interno['nota_rfb']='Calculadora oficial RFB local detectada. Dados abertos/versionamento disponíveis; cálculo RTC será ativado quando a operação tiver a classificação tributária completa.'
+ else:
+  interno['nota_rfb']='Calculadora oficial RFB local não detectada; usando motor fiscal interno. Instalação oficial expõe a API em localhost:8080/api.'
+ return interno
