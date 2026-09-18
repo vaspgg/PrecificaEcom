@@ -130,8 +130,23 @@ def shipping_quote(access_token,user_id,item_id=None,item_price=0,listing_type_i
     """Cota o custo de frete atribuído ao vendedor usando o contexto do anúncio."""
     if not user_id: raise MercadoLivreAPIError("Conta Mercado Livre sem user_id para cotação de frete.")
     params={"item_price":f"{float(item_price):.2f}","listing_type_id":listing_type_id,"mode":shipping_mode,"logistic_type":logistic_type,"free_shipping":"true" if free_shipping else "false"}
-    if item_id: params["item_id"]=item_id
-    data=_get(f"/users/{user_id}/shipping_options/free",access_token,params)
+    # item_id de anúncio de terceiro pode gerar 404 porque a cotação pertence
+    # ao vendedor autenticado. Tenta primeiro por parâmetros da operação e só
+    # usa item_id como fallback quando aplicável.
+    data=None
+    errors=[]
+    try:
+        data=_get(f"/users/{user_id}/shipping_options/free",access_token,params)
+    except MercadoLivreAPIError as e:
+        errors.append(str(e))
+    if data is None and item_id:
+        try:
+            p2=dict(params);p2["item_id"]=item_id
+            data=_get(f"/users/{user_id}/shipping_options/free",access_token,p2)
+        except MercadoLivreAPIError as e:
+            errors.append(str(e))
+    if data is None:
+        raise MercadoLivreAPIError("Não foi possível cotar o frete para a conta conectada. "+" | ".join(errors))
     options=data if isinstance(data,list) else (data.get("options") or data.get("coverage",{}).get("all_country",{}).get("list") or [])
     if isinstance(options,dict): options=[options]
     vals=[]
