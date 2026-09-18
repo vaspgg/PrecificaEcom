@@ -34,6 +34,16 @@ def calcular_imposto(regime,regras,receita_12m=0):
     tipos=("DAS","ICMS","DIFAL","FCP","PIS","COFINS","IRPJ","CSLL","IPI")
     vals=[float(r['aliquota'] or 0) for r in regras if r['tipo'] in tipos and r['aliquota'] is not None]
     if vals:return round(sum(vals),4),'Alíquota obtida das regras fiscais cadastradas para o regime/UF/NCM.'
+    # Baseline federal para comércio. Tributos estaduais e monofásicos/ST continuam
+    # dependendo das regras por NCM/UF e não são inventados aqui.
+    if regime=='PRESUMIDO':
+        # PIS 0,65 + COFINS 3,00 + IRPJ (8% x 15%) + CSLL (12% x 9%)
+        return 5.93,'Lucro Presumido/comércio: baseline federal estimado de 5,93% (PIS 0,65% + COFINS 3% + IRPJ 1,20% + CSLL 1,08%). ICMS/FCP/ST/DIFAL/IPI, adicional de IRPJ e regimes especiais dependem do produto/operação.'
+    if regime=='REAL':
+        # No Lucro Real IRPJ/CSLL incidem sobre lucro, não sobre faturamento.
+        # PIS/COFINS são não cumulativos e possuem créditos; não é correto somar
+        # 15%+9% ao preço de venda como se fossem tributos sobre receita.
+        return 9.25,'Lucro Real: baseline bruto de PIS/COFINS 9,25% (1,65% + 7,6%), antes dos créditos. IRPJ/CSLL incidem sobre o lucro e ICMS/FCP/ST/DIFAL/IPI dependem da operação; ajuste com as regras fiscais cadastradas.'
     return None,'Não há regra fiscal validada cadastrada para esta combinação de regime, UF e NCM.'
 
 def aliquota_efetiva_cadastrada(regras):
