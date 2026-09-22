@@ -20,7 +20,7 @@ class DesktopServer:
         self.thread = None
 
     def start(self):
-        self.thread = threading.Thread(target=self.server.run, name="PrecificaEcomServer", daemon=True)
+        self.thread = threading.Thread(target=self.server.run, name="NalviServer", daemon=True)
         self.thread.start()
         self._wait_until_ready()
 
@@ -33,7 +33,7 @@ class DesktopServer:
                         return
             except Exception:
                 time.sleep(0.15)
-        raise RuntimeError("O servidor interno do PrecificaEcom não iniciou a tempo.")
+        raise RuntimeError("O servidor interno do Nalvi não iniciou a tempo.")
 
     def stop(self):
         self.server.should_exit = True
@@ -47,7 +47,7 @@ def main():
     server.start()
 
     window = webview.create_window(
-        "PrecificaEcom",
+        "Nalvi",
         URL,
         width=1280,
         height=820,
