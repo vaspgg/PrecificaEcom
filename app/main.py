@@ -5,9 +5,9 @@ from .database import init_db, connect
 from .marketplaces.mercadolivre import *
 from .pricing import PricingInput, calcular_preco
 from .fiscal import contexto_fiscal, calcular_imposto, rtc_2026_info, calcular_fiscal_hibrido, fiscal_provider_status
-app=FastAPI(title='PrecificaEcom'); init_db()
+app=FastAPI(title='Nalvi'); init_db()
 CSS='''body{font-family:Segoe UI,Arial;background:#f4f6f8;margin:0;color:#1f2937}.wrap{max-width:1050px;margin:28px auto;padding:0 20px}.card{background:white;padding:24px;border-radius:14px;box-shadow:0 2px 12px #0001;margin-bottom:18px}h1{margin:0 0 8px}.muted{color:#64748b}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}label{display:block;font-size:13px;font-weight:600;margin-bottom:5px}input,select,textarea{width:100%;box-sizing:border-box;padding:10px;border:1px solid #cbd5e1;border-radius:8px}button,.btn{display:inline-block;padding:12px 18px;border:0;border-radius:9px;background:#111827;color:white;font-weight:700;cursor:pointer;text-decoration:none}.warn,.info,.ok{padding:12px;border-radius:8px;margin:10px 0}.warn{background:#fff7ed;color:#9a3412}.info{background:#eff6ff;color:#1e40af}.ok{background:#ecfdf5;color:#166534}.nav{display:flex;gap:14px;margin-bottom:15px;flex-wrap:wrap}.nav a{color:#334155;text-decoration:none;font-weight:600}.cat{padding:12px;border:1px solid #cbd5e1;border-radius:9px;margin:8px 0}@media(max-width:650px){.grid{grid-template-columns:1fr}}'''
-def page(b): return HTMLResponse(f"<!doctype html><html><head><meta charset='utf-8'><title>PrecificaEcom</title><style>{CSS}</style></head><body><div class='wrap'><div class='nav'><a href='/precificar'>Precificar</a><a href='/anuncio-similar'>Anúncio similar</a><a href='/empresa'>Empresa</a><a href='/mercadolivre'>Mercado Livre</a></div>{b}</div></body></html>")
+def page(b): return HTMLResponse(f"<!doctype html><html><head><meta charset='utf-8'><title>Nalvi</title><style>{CSS}</style></head><body><div class='wrap'><div class='nav'><a href='/precificar'>Precificar</a><a href='/anuncio-similar'>Anúncio similar</a><a href='/empresa'>Empresa</a><a href='/mercadolivre'>Mercado Livre</a></div>{b}</div></body></html>")
 def ml_cfg():
  c=connect();r=c.execute("SELECT * FROM marketplace_config WHERE marketplace='ML'").fetchone();c.close();return r
 def ensure_ml_token():
