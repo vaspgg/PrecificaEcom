@@ -1,19 +1,19 @@
-#define MyAppName "PrecificaEcom"
+#define MyAppName "Nalvi"
 #define MyAppVersion "0.19"
-#define MyAppPublisher "PrecificaEcom"
-#define MyAppExeName "PrecificaEcom.exe"
+#define MyAppPublisher "Nalvi"
+#define MyAppExeName "Nalvi.exe"
 
 [Setup]
 AppId={{C63A66A4-6F42-4F5A-A147-62F2B6E0C919}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={autopf}\PrecificaEcom
-DefaultGroupName=PrecificaEcom
+DefaultDirName={autopf}\Nalvi
+DefaultGroupName=Nalvi
 DisableProgramGroupPage=yes
 OutputDir=output
-OutputBaseFilename=PrecificaEcom-Setup
-SetupIconFile=..\assets\PrecificaEcom.ico
+OutputBaseFilename=Nalvi-Setup
+SetupIconFile=..\assets\Nalvi.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -24,14 +24,14 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 CloseApplications=yes
 
 [Files]
-Source: "..\dist\PrecificaEcom.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\Nalvi.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\PrecificaEcom"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\PrecificaEcom"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autoprograms}\Nalvi"; Filename: "{app}\{#MyAppExeName}"
+Name: "{autodesktop}\Nalvi"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Criar atalho na Área de Trabalho"; GroupDescription: "Atalhos:"; Flags: unchecked
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Abrir PrecificaEcom"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "Abrir Nalvi"; Flags: nowait postinstall skipifsilent
